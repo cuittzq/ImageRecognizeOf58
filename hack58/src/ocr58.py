@@ -52,7 +52,7 @@ def binaryzation(img, threshold=90):
         raise Exception('img must be StringIO or filename(str/unicode)')
     im = Image.open(img)
     imgry = im.convert('L')
-    imgry.save("bi0.bmp")
+    imgry.save("bi" + str(threshold) + ".bmp")
     imout = imgry.point(table, '1')
     imout.save("bi.bmp")
     return imout
@@ -182,6 +182,107 @@ def recognise(one):
     return ret
 
 
+# 二值判断,如果确认是噪声,用改点的上面一个点的灰度进行替换
+# 该函数也可以改成RGB判断的,具体看需求如何
+def getPixel(image, x, y, G, N):
+    L = image.getpixel((x, y))
+    if L > G:
+        L = True
+    else:
+        L = False
+
+    nearDots = 0
+    if L == (image.getpixel((x - 1, y - 1)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x - 1, y)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x - 1, y + 1)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x, y - 1)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x, y + 1)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x + 1, y - 1)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x + 1, y)) > G):
+        nearDots += 1
+    if L == (image.getpixel((x + 1, y + 1)) > G):
+        nearDots += 1
+
+    if nearDots < N:
+        return image.getpixel((x, y - 1))
+    else:
+        return None
+
+
+# 降噪
+# 根据一个点A的RGB值，与周围的8个点的RBG值比较，设定一个值N（0 <N <8），当A的RGB值与周围8个点的RGB相等数小于N时，此点为噪点
+# G: Integer 图像二值化阀值
+# N: Integer 降噪率 0 <N <8
+# Z: Integer 降噪次数
+# 输出
+#  0：降噪成功
+#  1：降噪失败
+def clearNoise(image, G, N, Z):
+    draw = ImageDraw.Draw(image)
+    for i in xrange(0, Z):
+        for x in xrange(1, image.size[0] - 1):
+            for y in xrange(1, image.size[1] - 1):
+                color = getPixel(image, x, y, G, N)
+                if color != None:
+                    draw.point((x, y), color)
+
+
+def RGB2BlackWhite(filename):
+    im = Image.open(filename)
+    print "image info,", im.format, im.mode, im.size
+    (w, h) = im.size
+    R = 0
+    G = 0
+    B = 0
+
+    for x in xrange(w):
+        for y in xrange(h):
+            pos = (x, y)
+            rgb = im.getpixel(pos)
+            (r, g, b) = rgb
+            R = R + r
+            G = G + g
+            B = B + b
+
+    rate1 = R * 1000 / (R + G + B)
+    rate2 = G * 1000 / (R + G + B)
+    rate3 = B * 1000 / (R + G + B)
+
+    print "rate:", rate1, rate2, rate3
+
+    for x in xrange(w):
+        for y in xrange(h):
+            pos = (x, y)
+            rgb = im.getpixel(pos)
+            (r, g, b) = rgb
+            n = r * rate1 / 1000 + g * rate2 / 1000 + b * rate3 / 1000
+            # print "n:",n
+            if n >= 60:
+                im.putpixel(pos, (255, 255, 255))
+            else:
+                im.putpixel(pos, (0, 0, 0))
+
+    im.save("blackwhite.bmp")
+
+
+def saveAsBmp(fname):
+    pos1 = fname.rfind('.')
+    fname1 = fname[0:pos1]
+    fname1 = fname1 + '_2.bmp'
+    im = Image.open(fname)
+    new_im = Image.new("RGB", im.size)
+    new_im.paste(im)
+    new_im.save(fname1)
+    return fname1
+
+
+
 '''
     识别验证码
 '''
@@ -190,8 +291,9 @@ def recognise(one):
 def DoWork(img):
     ans = []
     threshold = calcThreshold(img)
-    print 'threshold:', threshold
-    im = binaryzation(img, threshold)
+    for i in range(90, 200, 10):
+        print 'threshold:', i
+        im = binaryzation(img, i)
     chars = extractChar(im)
     for one in chars:
         ans.append(recognise(one))
@@ -250,15 +352,43 @@ def Get517validatecode():
         saveImg(imgurl, filename);
 
 
+def ImgeTest():
+    i = 1
+    filename = 'D://517na/pic' + str(i) + '.png'
+    print filename
+    # 打开图片
+    image = Image.open(filename)
+    image.filter(ImageFilter.EDGE_ENHANCE_MORE)
+    image.save(str(i) + "IMG_FILTER_EDGEDETECT.bmp")
+    # 将图片转换成灰度图片
+    image = image.convert("L")
+    image.save(str(i) + "convert.bmp")
+    # 去噪,G = 50,N = 4,Z = 4
+    # G: Integer 图像二值化阀值
+    # N: Integer 降噪率 0 <N <8
+    # Z: Integer 降噪次数
+    for i in range(2, 8, 1):
+        clearNoise(image, 150, i, 1)
+        # 保存图片
+        image.save(str(i) + ".bmp")
+
+def TestImage():
+    i = 1
+    filename = 'D://517na/pic' + str(i) + '.png'
+    filenamebmp = saveAsBmp(filename)
+    RGB2BlackWhite(filenamebmp)
+
 def main():
-    for i in range(10000):
-        filename = 'D://517na/pic' + str(i) + '.png'
-        print filename
-        ans = DoWork(filename)
-        anstsr = ''
-        for index in ans:
-            anstsr+=index
-        print anstsr
+    # for i in range(10000):
+    ImgeTest();
+    #TestImage();
+    i = 1
+    filename = 'D://517na/pic' + str(i) + '.png'
+    # ans = DoWork(filename)
+    # anstsr = ''
+    # for index in ans:
+    #     anstsr += index
+    # print anstsr
 
 
 if __name__ == '__main__':
